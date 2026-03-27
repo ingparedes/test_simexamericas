@@ -67,7 +67,7 @@ const TEST_CONFIG = {
     REPORTS: "test-results/stress-reports",
     SNAPSHOTS: "test-results/snapshots",
     TRACES: "test-results/traces",
-    VIDEOS: "test-results/videos",
+    // VIDEOS: "test-results/videos",
     LIGHTHOUSE: "test-results/stress-reports/lighthouse",
   },
 
@@ -330,40 +330,40 @@ async function measure<T>(
 // SNAPSHOT HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function snapshot(
-  page: Page,
-  name: string,
-  email: string,
-): Promise<void> {
-  try {
-    ensureDir(TEST_CONFIG.DIRS.SNAPSHOTS);
-    const safeEmail = email.replace(/[@.]/g, "_");
-    const refPath = path.join(
-      path.resolve(TEST_CONFIG.DIRS.SNAPSHOTS),
-      `${safeEmail}_${name}.png`,
-    );
+// async function snapshot(
+//   page: Page,
+//   name: string,
+//   email: string,
+// ): Promise<void> {
+//   try {
+//     ensureDir(TEST_CONFIG.DIRS.SNAPSHOTS);
+//     const safeEmail = email.replace(/[@.]/g, "_");
+//     const refPath = path.join(
+//       path.resolve(TEST_CONFIG.DIRS.SNAPSHOTS),
+//       `${safeEmail}_${name}.png`,
+//     );
 
-    if (fs.existsSync(refPath)) {
-      const current = await page.screenshot({ fullPage: false });
-      const ref = fs.readFileSync(refPath);
-      const diff = Math.abs(current.length - ref.length);
-      logUserAction(
-        email,
-        `📸 Snapshot "${name}" Δ ${diff} bytes ${diff === 0 ? "(sin cambios)" : "(⚠️ cambios)"}`,
-        diff === 0 ? "success" : "warning",
-      );
-    } else {
-      await page.screenshot({ path: refPath, fullPage: false });
-      logUserAction(
-        email,
-        `📸 Snapshot "${name}" guardado como referencia`,
-        "info",
-      );
-    }
-  } catch (err) {
-    logUserAction(email, `📸 Error snapshot "${name}": ${err}`, "warning");
-  }
-}
+//     if (fs.existsSync(refPath)) {
+//       const current = await page.screenshot({ fullPage: false });
+//       const ref = fs.readFileSync(refPath);
+//       const diff = Math.abs(current.length - ref.length);
+//       logUserAction(
+//         email,
+//         `📸 Snapshot "${name}" Δ ${diff} bytes ${diff === 0 ? "(sin cambios)" : "(⚠️ cambios)"}`,
+//         diff === 0 ? "success" : "warning",
+//       );
+//     } else {
+//       await page.screenshot({ path: refPath, fullPage: false });
+//       logUserAction(
+//         email,
+//         `📸 Snapshot "${name}" guardado como referencia`,
+//         "info",
+//       );
+//     }
+//   } catch (err) {
+//     logUserAction(email, `📸 Error snapshot "${name}": ${err}`, "warning");
+//   }
+// }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIGHTHOUSE HELPER
@@ -483,7 +483,7 @@ class LoginPage {
           );
         }
 
-        await snapshot(this.page, "login_before", email);
+        // await snapshot(this.page, "login_before", email);
         await runLighthouse(this.page, email, "login_page");
 
         await this.page.locator(this.sel.emailInput).waitFor({
@@ -501,7 +501,7 @@ class LoginPage {
           timeout: TEST_CONFIG.TIMEOUTS.DEFAULT_ACTION,
         });
 
-        await snapshot(this.page, "login_after", email);
+        // await snapshot(this.page, "login_after", email);
         await runLighthouse(this.page, email, "dashboard");
 
         logUserAction(email, "✨ Login exitoso", "success");
@@ -570,11 +570,11 @@ class TaskSentPage {
           "info",
         );
 
-        await snapshot(
-          this.page,
-          `accordion_before_c${cycleNumber}`,
-          user.email,
-        );
+        // await snapshot(
+        //   this.page,
+        //   `accordion_before_c${cycleNumber}`,
+        //   user.email,
+        // );
         await button.click({ timeout: TEST_CONFIG.TIMEOUTS.TASKSENT_WAIT });
 
         // Valida que el atributo cambió
@@ -590,11 +590,11 @@ class TaskSentPage {
             ),
           );
 
-        await snapshot(
-          this.page,
-          `accordion_after_c${cycleNumber}`,
-          user.email,
-        );
+        // await snapshot(
+        //   this.page,
+        //   `accordion_after_c${cycleNumber}`,
+        //   user.email,
+        // );
 
         logUserAction(
           user.email,
@@ -1186,10 +1186,10 @@ test.describe("Stress Test: Sesiones Activas — Response Task Sent Message", ()
 
     try {
       for (const user of users) {
-        ensureDir(TEST_CONFIG.DIRS.VIDEOS);
+        // ensureDir(TEST_CONFIG.DIRS.VIDEOS);
         const context = await browser.newContext({
           viewport: { width: 1280, height: 720 },
-          recordVideo: { dir: path.resolve(TEST_CONFIG.DIRS.VIDEOS) },
+          // recordVideo: { dir: path.resolve(TEST_CONFIG.DIRS.VIDEOS) },
         });
 
         sessions.push({

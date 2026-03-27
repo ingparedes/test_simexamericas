@@ -1,0 +1,23 @@
+server {
+    listen 80;
+    server_name _;
+
+    # Carpeta raíz donde están los archivos HTML
+    root /var/www/html/test_simexamericas/test-results;
+    index index.html index.htm;
+
+    merge_slashes off;
+    ignore_invalid_headers off;
+
+    # Lo más importante: servir los archivos estáticos correctamente
+    location / {
+        try_files $uri $uri/ =404;     # busca el archivo exacto, luego carpeta, sino 404
+    }
+
+    # Opcional: mejorar seguridad y rendimiento de archivos estáticos
+    location ~* \.(html|css|js|png|jpg|jpeg|gif|ico|svg|woff|ttf)$ {
+        expires 30d;
+        add_header Cache-Control "public";
+        access_log off;
+    }
+}
