@@ -1,23 +1,15 @@
 /**
  * ============================================================================
- * STRESS TEST v2 — Sesiones Activas
+ * STRESS TEST v2 — Sesiones Activas (ExconGeneral)
  * ============================================================================
  *
- *  ✅ Trace Viewer  → solo se persiste cuando hay un ERROR (no en éxito)
+ *  ✅ Trace Viewer  → solo se persiste cuando hay un ERROR (retain-on-failure)
  *  ✅ Tiempos de carga → TTFB, DOM Ready, Fully Loaded por página
  *  ✅ Lighthouse      → auditoría de performance (opt-in)
- *  ✅ Snapshots       → captura/comparación antes-después de cada ciclo
  *  ✅ Acordeones      → intervalos variables rotatorios (10 s base)
  *  ✅ Reporte         → promedios, percentiles p50/p90/p95, errores, HTML
- *
- * SUGERENCIAS DE MEJORA AL REPORTE (ver sección "REPORT SUGGESTIONS"):
- *  💡 Percentiles p50 / p90 / p95 por operación
- *  💡 Conteo de reintentos y errores recuperables vs fatales
- *  💡 Tasa de éxito por operación (login, accordion toggle, task check)
- *  💡 Timeline de ciclos por usuario (qué pasó en cada segundo)
- *  💡 Reporte HTML autónomo con tablas y barras de progreso
- *  💡 Clasificación automática de errores (timeout / selector / red / auth)
- *  💡 Alerta si algún avg supera umbral configurable (SLA)
+ *  ✅ SLA             → alerta automática si un promedio supera el umbral
+ *  ✅ Clasificación   → errores agrupados: TIMEOUT / SELECTOR / NAVIGATION / AUTH / NETWORK
  *
  * INSTALACIÓN:
  *   npm install -D @playwright/test
@@ -36,7 +28,7 @@ const TEST_CONFIG = {
   /** Cantidad de usuarios participantes */
   USEREXCONGENERAL_COUNT: Number(process.env.USER_COUNT ?? 1),
 
-  /** Offset para generación de IDs (usuario{N}@usuario{N}.org) */
+  /** Offset para generación de IDs (usuarioexcongeneral{N}@...) */
   USER_ID_OFFSET: Number(process.env.USER_OFFSET ?? 1),
 
   /** Duración total de cada sesión (ms) */
@@ -50,7 +42,7 @@ const TEST_CONFIG = {
   ACCORDION_INTERVALS_MS: [10_000, 20_000, 15_000, 30_000, 10_000],
 
   /** Índice (0-based) del acordeón objetivo en la lista */
-  ACCORDION_INDEX: 4,
+  ACCORDION_INDEX: 3,
 
   /**
    * SLA (Service Level Agreement) en ms.
@@ -58,6 +50,7 @@ const TEST_CONFIG = {
    */
   SLA_THRESHOLDS_MS: {
     LOGIN: 3_000,
+    TABLERO: 2_000,
     ACCORDION: 2_000,
     TASK_CHECK: 1_500,
   },
@@ -67,7 +60,6 @@ const TEST_CONFIG = {
     REPORTS: "test-results/stress-reports",
     SNAPSHOTS: "test-results/snapshots",
     TRACES: "test-results/traces",
-    // VIDEOS: "test-results/videos",
     LIGHTHOUSE: "test-results/stress-reports/lighthouse",
   },
 
@@ -158,6 +150,7 @@ interface TestStats {
   totalRetries: number;
   global: {
     avgLoginMs: number;
+    avgTableroMs: number;
     avgAccordionMs: number;
     avgTaskCheckMs: number;
     p50LoginMs: number;
@@ -180,6 +173,7 @@ interface UserReportDetail {
   retryCount: number;
   traceFile: string | null;
   avgLoginMs: number;
+  avgTableroMs: number;
   avgAccordionMs: number;
   avgTaskCheckMs: number;
   p50AccordionMs: number;
@@ -203,7 +197,7 @@ const generateUsers = (count: number): ParticipantUser[] =>
   Array.from({ length: count }, (_, i) => {
     const id = i + 1 + TEST_CONFIG.USER_ID_OFFSET;
     return {
-      email: `usuario${id}@usuario${id}.org`,
+      email: `usuarioexcongeneral${id}@usuarioexcongeneral${id}.com`,
       password: TEST_CONFIG.DEFAULT_PASSWORD,
     };
   });
@@ -327,45 +321,6 @@ async function measure<T>(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SNAPSHOT HELPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-// async function snapshot(
-//   page: Page,
-//   name: string,
-//   email: string,
-// ): Promise<void> {
-//   try {
-//     ensureDir(TEST_CONFIG.DIRS.SNAPSHOTS);
-//     const safeEmail = email.replace(/[@.]/g, "_");
-//     const refPath = path.join(
-//       path.resolve(TEST_CONFIG.DIRS.SNAPSHOTS),
-//       `${safeEmail}_${name}.png`,
-//     );
-
-//     if (fs.existsSync(refPath)) {
-//       const current = await page.screenshot({ fullPage: false });
-//       const ref = fs.readFileSync(refPath);
-//       const diff = Math.abs(current.length - ref.length);
-//       logUserAction(
-//         email,
-//         `📸 Snapshot "${name}" Δ ${diff} bytes ${diff === 0 ? "(sin cambios)" : "(⚠️ cambios)"}`,
-//         diff === 0 ? "success" : "warning",
-//       );
-//     } else {
-//       await page.screenshot({ path: refPath, fullPage: false });
-//       logUserAction(
-//         email,
-//         `📸 Snapshot "${name}" guardado como referencia`,
-//         "info",
-//       );
-//     }
-//   } catch (err) {
-//     logUserAction(email, `📸 Error snapshot "${name}": ${err}`, "warning");
-//   }
-// }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // LIGHTHOUSE HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -449,7 +404,7 @@ class LoginPage {
           timeout: TEST_CONFIG.TIMEOUTS.PAGE_LOAD,
         });
 
-        // ── Tiempos reales del browser ──────────────────────────────────────
+        // ── Tiempos reales del browser ──────────────────────────────────
         const nav = await getNavTiming(this.page);
         if (nav) {
           this.session._pageLoad = nav;
@@ -483,7 +438,6 @@ class LoginPage {
           );
         }
 
-        // await snapshot(this.page, "login_before", email);
         await runLighthouse(this.page, email, "login_page");
 
         await this.page.locator(this.sel.emailInput).waitFor({
@@ -501,8 +455,7 @@ class LoginPage {
           timeout: TEST_CONFIG.TIMEOUTS.DEFAULT_ACTION,
         });
 
-        // await snapshot(this.page, "login_after", email);
-        await runLighthouse(this.page, email, "dashboard");
+        await runLighthouse(this.page, email, "post_login");
 
         logUserAction(email, "✨ Login exitoso", "success");
       },
@@ -511,10 +464,55 @@ class LoginPage {
   }
 }
 
+class TableroSimulacionPage {
+  private readonly sel = {
+    menuButton: "a[id='menu-dashboard-excon']",
+  };
+
+  constructor(
+    private page: Page,
+    private session: UserSession,
+  ) {}
+
+  async gointoTableroSimulation(): Promise<void> {
+    await measure(
+      "TABLERO_NAVIGATION",
+      this.session,
+      async () => {
+        logUserAction(
+          this.session.user.email,
+          "Navegando al Tablero de Simulación",
+          "info",
+        );
+
+        const button = this.page.locator(this.sel.menuButton);
+
+        await button.waitFor({
+          state: "visible",
+          timeout: TEST_CONFIG.TIMEOUTS.DEFAULT_ACTION,
+        });
+
+        await button.click();
+
+        await this.page.waitForURL(/(dashboard|\/)/, {
+          timeout: TEST_CONFIG.TIMEOUTS.DEFAULT_ACTION,
+        });
+
+        logUserAction(
+          this.session.user.email,
+          "📊 Tablero de Simulación cargado",
+          "success",
+        );
+      },
+      { isFatal: true },
+    );
+  }
+}
+
 class TaskSentPage {
   private readonly sel = {
-    tareasEnviadas: "[data-testid=messagetasksparticipant]",
-    taskListAccordion: '[data-testid="taskListAccordionparticipant"]',
+    tareasEnviadas: "#message-tasks-sent",
+    taskListAccordion: '[data-testid="taskListAccordionsent"]',
   };
 
   constructor(
@@ -557,6 +555,7 @@ class TaskSentPage {
         const accordion = this.page
           .locator(this.sel.taskListAccordion)
           .nth(TEST_CONFIG.ACCORDION_INDEX);
+
         const button = accordion.locator("button[aria-expanded]");
 
         const currentState = await button.getAttribute("aria-expanded", {
@@ -570,14 +569,9 @@ class TaskSentPage {
           "info",
         );
 
-        // await snapshot(
-        //   this.page,
-        //   `accordion_before_c${cycleNumber}`,
-        //   user.email,
-        // );
         await button.click({ timeout: TEST_CONFIG.TIMEOUTS.TASKSENT_WAIT });
 
-        // Valida que el atributo cambió
+        // Valida que el atributo aria-expanded cambió correctamente
         await expect(button)
           .toHaveAttribute("aria-expanded", isExpanded ? "false" : "true", {
             timeout: TEST_CONFIG.TIMEOUTS.DEFAULT_ACTION,
@@ -589,12 +583,6 @@ class TaskSentPage {
               "warning",
             ),
           );
-
-        // await snapshot(
-        //   this.page,
-        //   `accordion_after_c${cycleNumber}`,
-        //   user.email,
-        // );
 
         logUserAction(
           user.email,
@@ -619,9 +607,6 @@ class TaskSentPage {
  *  • La traza siempre se INICIA antes de la primera acción.
  *  • Al finalizar con ÉXITO → context.tracing.stop() sin path → descartada.
  *  • Al finalizar con ERROR → context.tracing.stop({ path }) → guardada.
- *
- * Esto sigue la recomendación oficial de Playwright para no desperdiciar
- * espacio en disco cuando el test pasa correctamente.
  */
 async function maintainUserSession(session: UserSession): Promise<void> {
   const { user, page, context } = session;
@@ -629,11 +614,11 @@ async function maintainUserSession(session: UserSession): Promise<void> {
 
   ensureDir(TEST_CONFIG.DIRS.TRACES);
 
-  // ── Inicia la traza SIEMPRE (antes de cualquier acción) ──────────────────
+  // ── Inicia la traza SIEMPRE (antes de cualquier acción) ──────────────
   await context.tracing.start({
-    screenshots: true, // captura pantalla en cada acción
-    snapshots: true, // guarda snapshot del DOM en cada paso
-    sources: true, // incluye código fuente de locators
+    screenshots: true,
+    snapshots: true,
+    sources: true,
     title: `Trace - ${user.email}`,
   });
 
@@ -644,23 +629,28 @@ async function maintainUserSession(session: UserSession): Promise<void> {
   );
 
   const loginPage = new LoginPage(page, session);
+  const tableroPage = new TableroSimulacionPage(page, session);
   const taskSentPage = new TaskSentPage(page, session);
   let cycleNumber = 0;
   let criticalError: unknown = null;
 
   try {
-    // ── FASE 1: Login ───────────────────────────────────────────────────────
+    // ── FASE 1: Login ─────────────────────────────────────────────────
     await loginPage.login(user.email, user.password);
     session.loginSuccess = true;
 
     await page.waitForTimeout(1100);
+
+    // ── FASE 2: Acceso al Tablero de Simulación ───────────────────────
+    await tableroPage.gointoTableroSimulation();
+
     logUserAction(
       user.email,
       `🔄 Sesión activa | máximo: ${formatTime(TEST_CONFIG.SESSION_DURATION_MS)}`,
       "info",
     );
 
-    // ── FASE 2: Loop de ciclos ──────────────────────────────────────────────
+    // ── FASE 3: Loop de ciclos ────────────────────────────────────────
     while (true) {
       const elapsed = Date.now() - session.startTime;
       const remaining = TEST_CONFIG.SESSION_DURATION_MS - elapsed;
@@ -719,14 +709,13 @@ async function maintainUserSession(session: UserSession): Promise<void> {
     logUserAction(user.email, `💥 Error crítico: ${error}`, "error");
     throw error;
   } finally {
-    // ── Decide si guardar o descartar la traza ──────────────────────────────
+    // ── Decide si guardar o descartar la traza ────────────────────────
     if (session.hadError) {
       const tracePath = path.join(
         path.resolve(TEST_CONFIG.DIRS.TRACES),
         `ERROR_${safeEmail}_trace.zip`,
       );
 
-      // Guarda la traza con toda la información del fallo
       await context.tracing.stop({ path: tracePath });
       logUserAction(user.email, `📦 Traza guardada → ${tracePath}`, "error");
       logUserAction(
@@ -735,7 +724,7 @@ async function maintainUserSession(session: UserSession): Promise<void> {
         "info",
       );
 
-      // Guarda también el log de errores en JSON para análisis rápido
+      // Guarda el log de errores en JSON para análisis rápido
       const errorLogPath = path.join(
         path.resolve(TEST_CONFIG.DIRS.TRACES),
         `ERROR_${safeEmail}_errors.json`,
@@ -780,6 +769,7 @@ function buildStats(sessions: UserSession[]): TestStats {
     const accordionVals = timingValues(s.timings, "ACCORDION_CYCLE");
     const taskCheckVals = timingValues(s.timings, "CHECK_TASKS_CYCLE");
     const loginVals = timingValues(s.timings, "LOGIN");
+    const tableroVals = timingValues(s.timings, "TABLERO_NAVIGATION");
 
     return {
       email: s.user.email,
@@ -791,6 +781,7 @@ function buildStats(sessions: UserSession[]): TestStats {
       retryCount: s.retryCount,
       traceFile: tracePath,
       avgLoginMs: avgOf(loginVals),
+      avgTableroMs: avgOf(tableroVals),
       avgAccordionMs: avgOf(accordionVals),
       avgTaskCheckMs: avgOf(taskCheckVals),
       p50AccordionMs: percentile(accordionVals, 50),
@@ -809,6 +800,9 @@ function buildStats(sessions: UserSession[]): TestStats {
   const successfulLogins = users.filter((u) => u.status === "success").length;
 
   const allLoginMs = users.flatMap((u) => timingValues(u.timings, "LOGIN"));
+  const allTableroMs = users.flatMap((u) =>
+    timingValues(u.timings, "TABLERO_NAVIGATION"),
+  );
   const allAccordionMs = users.flatMap((u) =>
     timingValues(u.timings, "ACCORDION_CYCLE"),
   );
@@ -826,6 +820,7 @@ function buildStats(sessions: UserSession[]): TestStats {
     totalRetries: users.reduce((a, u) => a + u.retryCount, 0),
     global: {
       avgLoginMs: avgOf(allLoginMs),
+      avgTableroMs: avgOf(allTableroMs),
       avgAccordionMs: avgOf(allAccordionMs),
       avgTaskCheckMs: avgOf(allTaskCheckMs),
       p50LoginMs: percentile(allLoginMs, 50),
@@ -852,7 +847,7 @@ function printReport(stats: TestStats): void {
     stats.totalUsers > 0 ? ((n / stats.totalUsers) * 100).toFixed(1) : "0.0";
 
   logSep();
-  console.log("📊  REPORTE FINAL — STRESS TEST v2");
+  console.log("📊  REPORTE FINAL — STRESS TEST v2 (ExconGeneral)");
   console.log(`    Ejecutado: ${stats.runAt}`);
   logSep();
 
@@ -869,7 +864,7 @@ function printReport(stats: TestStats): void {
   console.log(`    ├─ 🔁 Reintentos totales:    ${stats.totalRetries}`);
   console.log(`    └─ 🐛 Errores totales:       ${stats.totalErrors}`);
 
-  // ── 2. Tiempos globales con percentiles ───────────────────────────────
+  // ── 2. Tiempos globales con percentiles ──────────────────────────────
   logSep("─");
   console.log("⏱️   TIEMPOS GLOBALES (todos los usuarios)");
   console.log("");
@@ -881,6 +876,9 @@ function printReport(stats: TestStats): void {
   );
   console.log(
     `    Login                │  ${msLabel(stats.global.avgLoginMs).padEnd(9)} │  ${msLabel(stats.global.p50LoginMs).padEnd(9)} │  ${msLabel(stats.global.p90LoginMs).padEnd(9)} │  ${msLabel(stats.global.p95LoginMs)}${slaFlag(stats.global.avgLoginMs, TEST_CONFIG.SLA_THRESHOLDS_MS.LOGIN)}`,
+  );
+  console.log(
+    `    Tablero Nav          │  ${msLabel(stats.global.avgTableroMs).padEnd(9)} │  ${"n/a".padEnd(9)} │  ${"n/a".padEnd(9)} │  n/a${slaFlag(stats.global.avgTableroMs, TEST_CONFIG.SLA_THRESHOLDS_MS.TABLERO)}`,
   );
   console.log(
     `    Accordion Toggle     │  ${msLabel(stats.global.avgAccordionMs).padEnd(9)} │  ${msLabel(stats.global.p50AccordionMs).padEnd(9)} │  ${msLabel(stats.global.p90AccordionMs).padEnd(9)} │  ${msLabel(stats.global.p95AccordionMs)}${slaFlag(stats.global.avgAccordionMs, TEST_CONFIG.SLA_THRESHOLDS_MS.ACCORDION)}`,
@@ -924,6 +922,9 @@ function printReport(stats: TestStats): void {
     console.log(`   ├─ ⏱️  Tiempos promedio:`);
     console.log(
       `   │    ├─ Login avg:         ${msLabel(u.avgLoginMs)}${slaFlag(u.avgLoginMs, TEST_CONFIG.SLA_THRESHOLDS_MS.LOGIN)}`,
+    );
+    console.log(
+      `   │    ├─ Tablero nav avg:   ${msLabel(u.avgTableroMs)}${slaFlag(u.avgTableroMs, TEST_CONFIG.SLA_THRESHOLDS_MS.TABLERO)}`,
     );
     console.log(
       `   │    ├─ Accordion avg:     ${msLabel(u.avgAccordionMs)}${slaFlag(u.avgAccordionMs, TEST_CONFIG.SLA_THRESHOLDS_MS.ACCORDION)}`,
@@ -976,7 +977,7 @@ function printReport(stats: TestStats): void {
     const barLen = Math.round((u.accordion / maxAccordion) * 25);
     const bar = "█".repeat(barLen) + "░".repeat(25 - barLen);
     console.log(
-      `${u.email.padEnd(45)} │ ${bar} │ ${u.accordion.toString().padStart(3)}${u.hadError ? " 🐛" : ""}`,
+      `${u.email.padEnd(55)} │ ${bar} │ ${u.accordion.toString().padStart(3)}${u.hadError ? " 🐛" : ""}`,
     );
   }
 
@@ -1007,7 +1008,7 @@ function printReport(stats: TestStats): void {
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const jsonPath = path.join(
     path.resolve(TEST_CONFIG.DIRS.REPORTS),
-    `report_${ts}.json`,
+    `report_excongeneral_${ts}.json`,
   );
   fs.writeFileSync(jsonPath, JSON.stringify(stats, null, 2), "utf-8");
   console.log(`📄  Reporte JSON → ${jsonPath}`);
@@ -1022,7 +1023,6 @@ function printReport(stats: TestStats): void {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GENERADOR DE REPORTE HTML
-// 💡 SUGERENCIA: extender con Chart.js/D3 para gráficas de barras y timelines
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildHtmlReport(stats: TestStats): string {
@@ -1036,6 +1036,7 @@ function buildHtmlReport(stats: TestStats): string {
       <td>${u.sessionDurationLabel}</td>
       <td>${msLabel(u.pageLoad?.ttfbMs ?? 0)} / ${msLabel(u.pageLoad?.domReadyMs ?? 0)} / ${msLabel(u.pageLoad?.fullyLoadedMs ?? 0)}</td>
       <td>${msLabel(u.avgLoginMs)}</td>
+      <td>${msLabel(u.avgTableroMs)}</td>
       <td>${msLabel(u.avgAccordionMs)}</td>
       <td>${msLabel(u.p50AccordionMs)} / ${msLabel(u.p90AccordionMs)} / ${msLabel(u.p95AccordionMs)}</td>
       <td>${u.successRates.accordion.toFixed(1)}% / ${u.successRates.taskCheck.toFixed(1)}%</td>
@@ -1065,7 +1066,7 @@ function buildHtmlReport(stats: TestStats): string {
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Stress Test Report — ${stats.runAt}</title>
+<title>Stress Test ExconGeneral — ${stats.runAt}</title>
 <style>
   *{box-sizing:border-box}
   body{font-family:system-ui,sans-serif;margin:0;padding:24px 32px;background:#f0f4f8;color:#1e293b}
@@ -1089,7 +1090,7 @@ function buildHtmlReport(stats: TestStats): string {
 </style>
 </head>
 <body>
-<h1>📊 Stress Test Report</h1>
+<h1>📊 Stress Test Report — ExconGeneral</h1>
 <p class="meta">Ejecutado: ${stats.runAt}</p>
 
 <div class="grid">
@@ -1105,6 +1106,7 @@ function buildHtmlReport(stats: TestStats): string {
 <table>
   <tr><th>Operación</th><th>AVG</th><th>p50</th><th>p90</th><th>p95</th><th>SLA</th></tr>
   <tr><td>Login</td><td>${msLabel(stats.global.avgLoginMs)}</td><td>${msLabel(stats.global.p50LoginMs)}</td><td>${msLabel(stats.global.p90LoginMs)}</td><td>${msLabel(stats.global.p95LoginMs)}</td><td>${stats.global.avgLoginMs > TEST_CONFIG.SLA_THRESHOLDS_MS.LOGIN ? "⚠️ Lento" : "✅ OK"}</td></tr>
+  <tr><td>Tablero Navegación</td><td>${msLabel(stats.global.avgTableroMs)}</td><td>—</td><td>—</td><td>—</td><td>${stats.global.avgTableroMs > TEST_CONFIG.SLA_THRESHOLDS_MS.TABLERO ? "⚠️ Lento" : "✅ OK"}</td></tr>
   <tr><td>Accordion Toggle</td><td>${msLabel(stats.global.avgAccordionMs)}</td><td>${msLabel(stats.global.p50AccordionMs)}</td><td>${msLabel(stats.global.p90AccordionMs)}</td><td>${msLabel(stats.global.p95AccordionMs)}</td><td>${stats.global.avgAccordionMs > TEST_CONFIG.SLA_THRESHOLDS_MS.ACCORDION ? "⚠️ Lento" : "✅ OK"}</td></tr>
   <tr><td>Task Check</td><td>${msLabel(stats.global.avgTaskCheckMs)}</td><td>—</td><td>—</td><td>—</td><td>${stats.global.avgTaskCheckMs > TEST_CONFIG.SLA_THRESHOLDS_MS.TASK_CHECK ? "⚠️ Lento" : "✅ OK"}</td></tr>
 </table>
@@ -1113,7 +1115,7 @@ function buildHtmlReport(stats: TestStats): string {
 <table>
   <tr>
     <th>Email</th><th>Estado</th><th>VistasTareas</th><th>Duración</th>
-    <th>Page Load (TTFB/DOM/Full)</th><th>Avg Login</th><th>Avg Accordion</th>
+    <th>Page Load (TTFB/DOM/Full)</th><th>Avg Login</th><th>Avg Tablero</th><th>Avg Accordion</th>
     <th>Accordion p50/p90/p95</th><th>Éxito Acc/Task</th><th>Err/Ret</th><th>Traza</th>
   </tr>
   ${userRows}
@@ -1148,7 +1150,7 @@ ${
 // TEST PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 
-test.describe("Stress Test: Sesiones Activas — Response Task Sent Message", () => {
+test.describe("Stress Test: Sesiones Activas — ExconGeneral Task Sent", () => {
   test(`Todos los participantes mantienen sesión ${TEST_CONFIG.SESSION_DURATION_MS / 60_000} min y responden tareas`, async ({
     browser,
   }) => {
@@ -1157,7 +1159,7 @@ test.describe("Stress Test: Sesiones Activas — Response Task Sent Message", ()
     const users = generateUsers(TEST_CONFIG.USEREXCONGENERAL_COUNT);
 
     logSep();
-    console.log("🚀  STRESS TEST v2 — INICIANDO");
+    console.log("🚀  STRESS TEST v2 (ExconGeneral) — INICIANDO");
     logSep();
     console.log("⚙️  CONFIGURACIÓN:");
     console.log(`    ├─ Usuarios:                ${users.length}`);
@@ -1178,6 +1180,9 @@ test.describe("Stress Test: Sesiones Activas — Response Task Sent Message", ()
       `    ├─ SLA Login:                ${msLabel(TEST_CONFIG.SLA_THRESHOLDS_MS.LOGIN)}`,
     );
     console.log(
+      `    ├─ SLA Tablero:              ${msLabel(TEST_CONFIG.SLA_THRESHOLDS_MS.TABLERO)}`,
+    );
+    console.log(
       `    └─ SLA Accordion:            ${msLabel(TEST_CONFIG.SLA_THRESHOLDS_MS.ACCORDION)}`,
     );
     logSep();
@@ -1186,10 +1191,8 @@ test.describe("Stress Test: Sesiones Activas — Response Task Sent Message", ()
 
     try {
       for (const user of users) {
-        // ensureDir(TEST_CONFIG.DIRS.VIDEOS);
         const context = await browser.newContext({
           viewport: { width: 1280, height: 720 },
-          // recordVideo: { dir: path.resolve(TEST_CONFIG.DIRS.VIDEOS) },
         });
 
         sessions.push({
@@ -1225,10 +1228,10 @@ test.describe("Stress Test: Sesiones Activas — Response Task Sent Message", ()
         const { accordionCount, errors } = sessions[i];
         if (r.status === "fulfilled") {
           console.log(
-            `    ✅ ${email.padEnd(45)} → ${accordionCount} comentario(s) | ${errors.length} error(es)`,
+            `    ✅ ${email.padEnd(55)} → ${accordionCount} vista(s) | ${errors.length} error(es)`,
           );
         } else {
-          console.log(`    ❌ ${email.padEnd(45)} → FATAL: ${r.reason}`);
+          console.log(`    ❌ ${email.padEnd(55)} → FATAL: ${r.reason}`);
         }
       });
 
